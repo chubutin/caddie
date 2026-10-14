@@ -501,14 +501,15 @@ export default function App() {
     <div className="shell">
       <aside className="rail">
         <div className="mark">
-          <b>Poletti</b>
-          <span>Copa Classic · estadísticas</span>
+          <b>Caddie<br />Virtual</b>
+          <span>Garmin Approach S62</span>
         </div>
         <nav>
           {TABS.map(([name], i) => (
             <button key={name} aria-current={i === tab} onClick={() => setTab(i)}>{name}</button>
           ))}
         </nav>
+        <p className="by">by Chubutin</p>
       </aside>
       <main><View /></main>
     </div>

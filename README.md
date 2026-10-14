@@ -1,6 +1,7 @@
 # caddie
 
-Tu propia data de golf, extraída del reloj y analizada en serio.
+**Caddie Virtual** — tu propia data de golf, extraída del reloj y analizada
+en serio. Por [Chubutin](https://github.com/chubutin).
 
 Un **Garmin Approach S62** captura cada tiro con coordenadas GPS, el palo, la
 distancia y la tarjeta completa. La app de Garmin Golf muestra una fracción de
@@ -160,5 +161,8 @@ db/init/          esquema SQL
 config/           mapeo de nombres de palos
 ```
 
-`data/`, `.env` y los tokens están en `.gitignore`. La paleta está documentada
-en `docs-palette.md`.
+`data/`, `.env` y los tokens están en `.gitignore`.
+
+La paleta está documentada en `docs-palette.md`: el cromo sale de la identidad
+visual de la Copa Poletti Classic y los colores de dato son una familia
+aparte, validada contra esas superficies.
