@@ -191,26 +191,35 @@ function Rondas() {
 function ClubNameInput({ club, onSaved }) {
   const [value, setValue] = useState(club.club_label_raw ?? '')
   const [saving, setSaving] = useState(false)
+  const [failed, setFailed] = useState(null)
   const original = club.club_label_raw ?? ''
 
   async function save() {
     if (value === original) return
-    setSaving(true)
+    setSaving(true); setFailed(null)
     try {
       await put('/api/club-labels', {
         scope: 'slot', key: String(club.club_type_id), label: value,
       })
       onSaved()
+    } catch (e) {
+      // Si no se ve el error, el campo muestra el nombre nuevo y no guardó
+      // nada: peor que fallar de frente.
+      setFailed(e.message)
+      setValue(original)
     } finally { setSaving(false) }
   }
 
   return (
-    <input className="cell-edit" value={value} disabled={saving}
-           placeholder={club.model || `tipo ${club.club_type_id}`}
-           onChange={(e) => setValue(e.target.value)}
-           onBlur={save}
-           onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
-           aria-label={`Nombre del palo en la posición ${club.club_type_id}`} />
+    <span style={{ display: 'inline-flex', flexDirection: 'column' }}>
+      <input className="cell-edit" value={value} disabled={saving}
+             placeholder={club.model || `tipo ${club.club_type_id}`}
+             onChange={(e) => setValue(e.target.value)}
+             onBlur={save}
+             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+             aria-label={`Nombre del palo en la posición ${club.club_type_id}`} />
+      {failed && <span className="save-failed">No se guardó: {failed}</span>}
+    </span>
   )
 }
 
@@ -237,11 +246,14 @@ function Palos() {
              note="La mediana con su rango intercuartil, sin putts. AutoShot no siempre identifica el palo, así que la muestra es menor que el total de golpes.">
         <Panel state={clubs}>{(d) => <ClubRange data={prep(d)} />}</Panel>
       </Block>
-      <Block title="Tus números contra los de Garmin" framed={false}
-             note="Garmin publica un promedio; acá calculamos la mediana sobre los tiros crudos. Cuando difieren, la mediana manda: el promedio se arrastra con topazos y tiros raros. Los nombres los ponés vos: Garmin manda el nombre del set, no el del palo. Se guardan por posición en la bolsa, así un juego nuevo los hereda.">
+      <Block title="Tu bolsa, y tus números contra los de Garmin" framed={false}
+             note="Garmin manda el nombre del set, no el del palo: ocho hierros del mismo juego llegan todos iguales. Los nombres los ponés vos y se guardan por posición en la bolsa, así un juego nuevo los hereda solo. Las distancias son la mediana sobre tus tiros crudos; cuando difiere del promedio de Garmin, la mediana manda, porque el promedio se arrastra con topazos.">
+        <p className="edit-hint">
+          Tocá un nombre para cambiarlo y apretá Enter.
+        </p>
         <Panel state={clubs}>{(d) => (
           <Table rows={prep(d)} cols={[
-            { k: 'club_label', h: 'Palo', f: (r) => (
+            { k: 'club_label', h: 'Palo ✎', f: (r) => (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <ClubNameInput club={r} onSaved={() => setVersion((v) => v + 1)} />
                 {r.model && <span style={{ color: 'var(--ink-3)' }}>{r.model}</span>}
@@ -284,7 +296,7 @@ function Dispersion() {
       <Block title="Detalle" framed={false}>
         <Panel state={lat}>{(d) => (
           <Table rows={prep(d)} cols={[
-            { k: 'club_label', h: 'Palo', f: (r) => (
+            { k: 'club_label', h: 'Palo ✎', f: (r) => (
               <>{r.club_label}{r.club_sub && <span style={{ color: 'var(--ink-3)' }}> · {r.club_sub}</span>}</>
             )},
             { k: 'shots', h: 'Tiros' },

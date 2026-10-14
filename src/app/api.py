@@ -34,7 +34,7 @@ app.add_middleware(
         f"http://localhost:{os.getenv('WEB_PORT', '5173')}",
         f"http://127.0.0.1:{os.getenv('WEB_PORT', '5173')}",
     ],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["*"],
 )
 
@@ -180,7 +180,10 @@ def clubs(solo_bolsa_actual: bool = False) -> list[dict[str, Any]]:
             GROUP BY club_id
         ) m ON m.club_id = c.id
         {where}
-        ORDER BY c.avg_distance_m DESC NULLS LAST
+        -- Los que jugas hoy primero y en orden de bolsa (driver -> putter).
+        -- Ordenar por distancia mandaba los palos nuevos al fondo, justo los
+        -- que hay que nombrar: todavia no tienen un solo tiro medido.
+        ORDER BY c.retired, c.club_type_id
         """
     )
 

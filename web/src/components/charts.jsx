@@ -104,6 +104,7 @@ export function TrendChart({
 export function ClubRange({ data }) {
   const [hover, setHover] = useHover()
   const rows = data.filter((d) => d.median_yd !== null)
+    .slice().sort((a, b) => Number(b.median_yd) - Number(a.median_yd))
   if (!rows.length) return <p className="msg">Sin tiros con palo asignado.</p>
 
   const W = 880, rowH = 30, H = rows.length * rowH + PAD.t + PAD.b
