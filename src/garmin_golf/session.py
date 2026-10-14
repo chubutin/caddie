@@ -34,6 +34,35 @@ MFA_SESSION_TTL = 300  # 5 minutos para escribir el codigo
 JOB_RETENTION = 3600
 
 
+class RateLimited(RuntimeError):
+    """Garmin corto el login por intentos, no por credenciales."""
+
+
+class _ChainCapture(logging.Handler):
+    """Junta lo que la libreria loguea mientras prueba sus estrategias.
+
+    Hace falta porque la cadena de login prueba cinco caminos y, si todos
+    fallan, levanta un error de autenticacion generico — aunque la causa real
+    haya sido un 429. Sin mirar estos mensajes uno le dice al usuario que
+    revise la contraseña cuando lo que tiene que hacer es esperar.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.messages.append(record.getMessage())
+        except Exception:  # noqa: BLE001
+            pass
+
+    @property
+    def rate_limited(self) -> bool:
+        blob = " ".join(self.messages).lower()
+        return "429" in blob or "rate limit" in blob or "too many" in blob
+
+
 def server_config() -> Config:
     """Config sin credenciales: la API no las necesita, las recibe por request."""
     raw = Path(os.getenv("GARMIN_GOLF_RAW_DIR") or (PROJECT_ROOT / "data/raw"))
@@ -69,15 +98,55 @@ def _persist(client: Garmin, config: Config) -> None:
     client.password = None
 
 
-def auth_status() -> dict[str, Any]:
-    """Hay un token usable? Devuelve el nombre del perfil si lo hay."""
+_profile_name: str | None = None
+
+
+def _jwt_expiry(token: str) -> float | None:
+    """`exp` del JWT, sin verificar la firma. Solo queremos saber si vencio."""
+    import base64
+    import json
+
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(payload))["exp"])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def auth_status(verify: bool = False) -> dict[str, Any]:
+    """Hay un token usable?
+
+    Por defecto se resuelve LOCAL: se lee el `exp` del JWT guardado. Pegarle a
+    Garmin en cada carga de pantalla haria lenta la pagina y gastaria pedidos
+    contra el mismo limite que nos corta los logins. `verify=True` fuerza la
+    comprobacion real contra la API.
+    """
+    global _profile_name
     config = server_config()
-    if not config.tokenstore.exists():
+    token_file = config.tokenstore / "garmin_tokens.json"
+    if not token_file.exists():
         return {"authenticated": False, "reason": "sin token guardado"}
+
+    if not verify:
+        import json
+
+        try:
+            tokens = json.loads(token_file.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {"authenticated": False, "reason": "el token guardado está ilegible"}
+        exp = _jwt_expiry(tokens.get("di_token", ""))
+        if exp is not None and exp < time.time():
+            # Hay refresh token: puede renovarse solo al usarlo.
+            if not tokens.get("di_refresh_token"):
+                return {"authenticated": False, "reason": "el token guardado ya no sirve"}
+        return {"authenticated": True, "name": _profile_name, "checked": "local"}
+
     try:
         client = Garmin()
         client.login(tokenstore=str(config.tokenstore))
-        return {"authenticated": True, "name": client.get_full_name()}
+        _profile_name = client.get_full_name()
+        return {"authenticated": True, "name": _profile_name, "checked": "garmin"}
     except Exception as exc:  # noqa: BLE001
         logger.info("Token guardado no sirve: %s", type(exc).__name__)
         return {"authenticated": False, "reason": "el token guardado ya no sirve"}
@@ -88,7 +157,24 @@ def start_login(email: str, password: str) -> dict[str, Any]:
     _sweep_pending()
     config = server_config()
     client = Garmin(email=email, password=password, return_on_mfa=True)
-    status, _ = client.login(tokenstore=str(config.tokenstore))
+
+    capture = _ChainCapture()
+    lib_logger = logging.getLogger("garminconnect")
+    lib_logger.addHandler(capture)
+    previous_level = lib_logger.level
+    lib_logger.setLevel(logging.DEBUG)
+    try:
+        status, _ = client.login(tokenstore=str(config.tokenstore))
+    except Exception as exc:
+        if capture.rate_limited:
+            raise RateLimited(
+                "Garmin cortó el login por cantidad de intentos, no por las "
+                "credenciales. Esperá unos minutos y probá de nuevo."
+            ) from exc
+        raise
+    finally:
+        lib_logger.removeHandler(capture)
+        lib_logger.setLevel(previous_level)
 
     if status == "needs_mfa":
         token = secrets.token_urlsafe(24)
@@ -97,7 +183,9 @@ def start_login(email: str, password: str) -> dict[str, Any]:
         return {"authenticated": False, "needs_mfa": True, "session": token}
 
     _persist(client, config)
-    return {"authenticated": True, "needs_mfa": False, "name": client.get_full_name()}
+    global _profile_name
+    _profile_name = client.get_full_name()
+    return {"authenticated": True, "needs_mfa": False, "name": _profile_name}
 
 
 def complete_mfa(session: str, code: str) -> dict[str, Any]:
@@ -113,10 +201,14 @@ def complete_mfa(session: str, code: str) -> dict[str, Any]:
     _persist(pending.client, config)
     with _pending_lock:
         _pending.pop(session, None)
-    return {"authenticated": True, "name": pending.client.get_full_name()}
+    global _profile_name
+    _profile_name = pending.client.get_full_name()
+    return {"authenticated": True, "name": _profile_name}
 
 
 def logout() -> dict[str, Any]:
+    global _profile_name
+    _profile_name = None
     config = server_config()
     existed = config.tokenstore.exists()
     if config.tokenstore.is_dir():
@@ -184,6 +276,8 @@ def _run_sync(job: Job, limit: int | None) -> None:
         job.log("Entrando a Garmin con el token guardado")
         client = Garmin()
         client.login(tokenstore=str(config.tokenstore))
+        global _profile_name
+        _profile_name = client.get_full_name()
 
         job.log("Bajando el listado de vueltas")
         rounds, _ = fetch_summary(config, store, client=client)

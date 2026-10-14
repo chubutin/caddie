@@ -59,7 +59,10 @@ services:
       # La API sincroniza: escribe el raw y guarda el token OAuth.
       # El token es lo UNICO que se persiste; la contraseña nunca toca disco.
       - ./data/raw:/data/raw
-      - garmin-tokens:/tokens
+      # Mismo tokenstore que el CLI del host: si ya entraste por terminal, la
+      # UI reusa esa sesion y no hace falta volver a loguearse (y se evita
+      # pedirle a Garmin un login nuevo, que es lo que dispara los 429).
+      - ${HOME}/.garminconnect:/tokens/.garminconnect
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')\""]
       interval: 5s
@@ -84,4 +87,3 @@ services:
 
 volumes:
   pgdata:
-  garmin-tokens:

@@ -760,8 +760,12 @@ class MfaBody(BaseModel):
 
 
 @app.get("/api/auth/status")
-def auth_status_endpoint() -> dict[str, Any]:
-    return session.auth_status()
+def auth_status_endpoint(verify: bool = False) -> dict[str, Any]:
+    """Por defecto comprueba local (lee el vencimiento del token guardado).
+
+    `?verify=true` lo chequea contra Garmin, que tarda varios segundos.
+    """
+    return session.auth_status(verify=verify)
 
 
 @app.post("/api/auth/login")
@@ -770,6 +774,8 @@ def auth_login(body: LoginBody) -> dict[str, Any]:
         raise HTTPException(400, "Falta el mail o la contraseña.")
     try:
         return session.start_login(body.email.strip(), body.password)
+    except session.RateLimited as exc:
+        raise HTTPException(429, str(exc)) from None
     except GarminConnectAuthenticationError:
         raise HTTPException(401, "Garmin rechazó el mail o la contraseña.") from None
     except GarminConnectTooManyRequestsError:

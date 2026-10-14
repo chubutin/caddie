@@ -17,8 +17,19 @@ export default function Datos() {
   const [job, setJob] = useState(null)
   const poll = useRef(null)
 
+  // El chequeo rapido se resuelve leyendo el token guardado, sin red: la
+  // pantalla abre al instante. Si todavia no sabemos de quien es la sesion,
+  // se lo preguntamos a Garmin aparte, sin bloquear nada.
   const refreshAuth = () =>
-    get('/api/auth/status').then(setAuth).catch((e) => setError(e.message))
+    get('/api/auth/status')
+      .then((a) => {
+        setAuth(a)
+        if (a.authenticated && !a.name) {
+          get('/api/auth/status?verify=true').then(setAuth).catch(() => {})
+        }
+        return a
+      })
+      .catch((e) => setError(e.message))
 
   useEffect(() => {
     refreshAuth()
@@ -88,8 +99,12 @@ export default function Datos() {
           <div className="framed plot">
             <div className="figrow" style={{ alignItems: 'center' }}>
               <div>
-                <div className="v fig" style={{ fontSize: 20 }}>{auth.name}</div>
-                <div className="k">sesión activa</div>
+                <div className="v fig" style={{ fontSize: 20 }}>
+                  {auth.name || 'Sesión activa'}
+                </div>
+                <div className="k">
+                  {auth.name ? 'sesión activa' : 'confirmando con Garmin'}
+                </div>
               </div>
               <button className="btn-quiet" onClick={doLogout} disabled={busy || running}>
                 Cerrar sesión
