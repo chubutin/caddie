@@ -415,6 +415,9 @@ function Palos() {
                 {r.retired && <span className="tag">retirado</span>}
               </span>
             )},
+            { k: 'tags', h: 'Etiquetas', f: (r) => (
+              <ClubTags club={r} onChanged={refresh} />
+            )},
             { k: 'shots_count', h: 'Tiros' },
             { k: 'shots_measured', h: 'Medidos' },
             { k: 'garmin_avg_yd', h: 'Promedio Garmin' },
