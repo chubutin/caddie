@@ -5,7 +5,7 @@ Es idempotente: se puede correr las veces que haga falta sobre el mismo raw.
 
 Correr:
     docker compose run --rm etl              # dentro del stack
-    uv run python -m garmin_golf.etl         # desde el host
+    uv run python -m app.etl         # desde el host
 """
 
 from __future__ import annotations
@@ -67,8 +67,8 @@ def snapshot_for_round(
 def hole_par(hole_pars: str, number: int) -> int | None:
     """Par del hoyo `number` (1-based), repitiendo ciclicamente.
 
-    En Grand Bell jugas el mismo nueve dos veces: el snapshot trae 9 pares
-    y la ronda tiene 18 hoyos. El hoyo 10 es el 1 otra vez.
+    Hay canchas de nueve que se juegan dos veces: el snapshot trae 9 pares y
+    la ronda tiene 18 hoyos. El hoyo 10 es el 1 otra vez.
     """
     if not hole_pars or number < 1:
         return None
@@ -171,8 +171,8 @@ class Etl:
     def _resolve_courses(self) -> None:
         """Una fila por cancha, con el snapshot que mas rondas usaron.
 
-        Si no, el nombre sale de cualquier version vieja del campo (por eso
-        aparecia "Grand Bell Country Club+Grand Bell Country Club").
+        Si no, el nombre sale de cualquier version vieja del campo, que
+        suele venir duplicado o con el layout pegado al nombre del club.
         """
         for gid, uses in self.snapshot_use.items():
             best_sid = max(uses.items(), key=lambda kv: kv[1])[0]
@@ -378,24 +378,24 @@ class Etl:
                 )
                 self.n_shots += 1
 
-    def _club_naming(self) -> tuple[dict[str, str], dict[str, str]]:
-        """(ranuras por clubTypeId, excepciones por id de palo).
+    def _club_naming(self, cur) -> tuple[dict[str, str], dict[str, str]]:
+        """(nombres por clubTypeId, excepciones por id de palo).
 
-        Se nombra por RANURA y no por palo: cuando cambias de set, el hierro 5
-        nuevo entra con otro id pero el mismo clubTypeId, asi que hereda el
-        nombre sin tocar nada. Los tiros viejos quedan en el palo viejo.
+        Salen de la tabla `club_labels`, que el usuario edita desde la UI y
+        que el TRUNCATE no toca. Se nombra por RANURA y no por palo: cuando
+        cambias de set, el hierro 5 nuevo entra con otro id pero el mismo
+        clubTypeId, asi que hereda el nombre sin tocar nada. Los tiros viejos
+        quedan en el palo viejo.
         """
-        path = PROJECT_ROOT / "config" / "club_labels.json"
-        if not path.exists():
-            return {}, {}
-        import json
-
-        data = json.loads(path.read_text(encoding="utf-8"))
-        clean = lambda d: {str(k): v for k, v in (d or {}).items() if v and v != "?"}
-        return clean(data.get("slots")), clean(data.get("overrides"))
+        cur.execute("SELECT scope, key, label FROM club_labels")
+        slots: dict[str, str] = {}
+        overrides: dict[str, str] = {}
+        for row in cur.fetchall():
+            (slots if row["scope"] == "slot" else overrides)[row["key"]] = row["label"]
+        return slots, overrides
 
     def _load_clubs(self, cur) -> None:
-        slots, overrides = self._club_naming()
+        slots, overrides = self._club_naming(cur)
         try:
             clubs = RawStore.read_file(self.config.stats_dir / "club_stats.json")
         except FileNotFoundError:

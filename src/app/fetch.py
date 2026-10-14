@@ -1,11 +1,13 @@
-"""Capa 1: bajar data cruda de Garmin Golf a disco.
+"""Capa 1: bajar data cruda de Garmin a disco.
 
 Uso:
-    uv run garmin-golf summary               # rondas (pagina hasta el final) + estructura
-    uv run garmin-golf summary --show-round  # ademas vuelca la primera ronda entera
+    uv run caddie sync         bajar todo: vueltas, tarjetas, tiros y stats
+    uv run caddie sync --limit 10   solo las 10 vueltas mas recientes
+    uv run caddie status       que hay bajado, sin tocar la red
+    uv run caddie summary      solo el listado de vueltas + su estructura
 
-Por ahora solo el summary: antes de bajar scorecards y tiros quiero ver con
-que me encuentro.
+Es una API reverseada: se le pega una sola vez por recurso y el parseo se
+itera offline contra los JSON ya guardados.
 """
 
 from __future__ import annotations
@@ -192,7 +194,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="garmin-golf", description=__doc__)
+    parser = argparse.ArgumentParser(prog="caddie", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true", help="logging debug")
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -182,6 +182,20 @@ CREATE TABLE clubs (
     pct_green_miss_short  REAL
 );
 
+-- Nombres de palos puestos por el usuario desde la UI. Garmin guarda en
+-- `model` el nombre del SET, no el del palo: ocho hierros del mismo juego
+-- llegan todos igual. Esta tabla NO la toca el TRUNCATE del ETL — si se
+-- borrara con cada recarga habria que renombrar la bolsa cada vez.
+CREATE TABLE club_labels (
+    scope TEXT NOT NULL CHECK (scope IN ('slot','club')),
+    key   TEXT NOT NULL,
+    label TEXT NOT NULL,
+    PRIMARY KEY (scope, key)
+);
+COMMENT ON COLUMN club_labels.scope IS
+  'slot -> por clubTypeId, lo hereda un set nuevo en la misma posicion de la
+   bolsa. club -> por id de palo, para excepciones.';
+
 -- --------------------------------------------- perfil derivado de un hoyo --
 CREATE TABLE hole_profiles (
     course_global_id   BIGINT NOT NULL REFERENCES courses ON DELETE CASCADE,

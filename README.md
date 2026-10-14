@@ -7,8 +7,6 @@ Un **Garmin Approach S62** captura cada tiro con coordenadas GPS, el palo, la
 distancia y la tarjeta completa. La app de Garmin Golf muestra una fracción de
 eso y no deja exportarlo. Esto lo baja entero, lo normaliza y lo analiza.
 
-**232 vueltas · 14.509 tiros con GPS · 25 canchas · 2022 a 2026.**
-
 Garmin no publica una API de golf. `python-garminconnect` se autentica con el
 mismo flujo SSO que la app de Android y expone los endpoints internos.
 
@@ -28,13 +26,25 @@ recurso. El parseo se itera offline contra los JSON ya guardados.
 ## Arrancar
 
 ```bash
-uv sync
-cp .env.example .env          # completar GARMIN_EMAIL y GARMIN_PASSWORD
-
-uv run garmin-golf sync       # host:   Garmin -> data/raw
-docker compose up -d          # db + api + web
-docker compose run --rm etl   # docker: data/raw -> Postgres
+make instalar     # dependencias + .env
+make levantar     # base, API y web
+make actualizar   # bajar de Garmin y cargar en la base
 ```
+
+`make` solo lista todas las tareas. Las que borran algo piden confirmación
+escribiendo el nombre del comando.
+
+| Tarea | Qué hace |
+|---|---|
+| `make actualizar` | Bajar de Garmin lo que falte y cargarlo en la base |
+| `make estado` | Qué está corriendo y qué hay bajado |
+| `make sesion` | Ver si hay sesión de Garmin abierta |
+| `make cerrar-sesion` | Borrar el token guardado |
+| `make borrar-base` | Vaciar la base (se reconstruye con `make cargar`) |
+| `make borrar-datos` | Borrar la data cruda (hay que volver a bajarla) |
+| `make borrar-todo` | Dejar el repo como recién clonado |
+| `make revisar` | Buscar credenciales, tokens o data personal antes de subir |
+| `make subir` | Revisar y pushear |
 
 La UI queda en **http://localhost:5173**, la API en **http://localhost:8010**.
 
@@ -66,9 +76,10 @@ servidor, hay que ponerle auth antes de exponerlo.
 ### Otros comandos
 
 ```bash
-uv run garmin-golf status                # qué hay bajado, sin tocar la red
-uv run garmin-golf sync --limit 10       # solo las 10 vueltas más recientes
-uv run python -m garmin_golf.probe data/raw/summary/*.json   # inspector de estructura
+uv run caddie status                 # qué hay bajado, sin tocar la red
+uv run caddie sync --limit 10        # solo las 10 vueltas más recientes
+uv run python -m app.probe data/raw/summary/*.json   # inspector de estructura
+make psql                            # consola SQL contra la base
 ```
 
 ## Qué analiza
@@ -83,7 +94,7 @@ uv run python -m garmin_golf.probe data/raw/summary/*.json   # inspector de estr
 ## Rarezas verificadas de la API
 
 Todo comprobado contra respuestas reales, no contra la doc de la librería.
-Ver `src/garmin_golf/endpoints.py`.
+Ver `src/app/endpoints.py`.
 
 | Qué | Detalle |
 |---|---|
@@ -99,17 +110,20 @@ Ver `src/garmin_golf/endpoints.py`.
 
 ## Calidad de la data
 
-| año | vueltas | captura AutoShot | con `clubId` | putts con GPS |
-|---|---|---|---|---|
-| 2022 | 41 | 89% | 88% | 636 |
-| 2023 | 50 | 82% | 56% | 862 |
-| 2024 | 58 | 84% | 34% | 1639 |
-| 2025 | 39 | 81% | 53% | 475 |
-| 2026 | 44 | 83% | **71%** | **0** |
+Hay dos cosas que conviene medir antes de creerle a cualquier promedio, y la
+pestaña *Calidad* las muestra año por año:
 
-AutoShot captura entre el 81% y el 89% de los golpes sin putt: es un **muestreo,
-no un censo**. Los putts con GPS solo existen con sensores de palo, que se
-usaron hasta 2025.
+**AutoShot no captura todos los golpes.** En este dataset ronda el 80-90% de
+los golpes sin putt. Es un **muestreo, no un censo**: si promediás distancia
+de wedge sin tenerlo en cuenta, el sesgo va para arriba.
+
+**El `clubId` falta seguido.** La proporción de tiros con palo identificado
+varía muchísimo de un año a otro, así que las distancias por palo tienen una
+muestra bastante menor que el total de golpes.
+
+**Los putts con GPS solo existen con sensores de palo.** Sin ellos no hay ni
+un putt en el shot data, aunque la cantidad por hoyo sigue estando en la
+tarjeta.
 
 **No hay métricas de distancia de putt, a propósito.** Cuando se miden, el
 porcentaje de embocados sale plano en ~50% desde cero hasta veinte yardas, lo
@@ -123,8 +137,8 @@ necesaria. Se probó con el `pinPosition` registrado y deduciendo el hoyo del
 pierde su única ventaja. Las consultas que importan son espaciales —
 dispersión, distancia al green, largo de hoyo— y `ST_Distance` sobre
 `geography` las resuelve en SQL. Validación de que la geometría entró bien:
-recalcular con PostGIS la distancia de cada tiro da **0,15 m de error medio**
-contra el `meters` de Garmin, sobre 14.434 tiros.
+recalcular con PostGIS la distancia de cada tiro desde sus coordenadas da
+**0,15 m de error medio** contra el `meters` que reporta Garmin.
 
 **La base guarda metros, la API devuelve yardas.** Los metros son la unidad de
 origen y no se pierde nada; todo campo de distancia que sale de la API termina
@@ -134,15 +148,18 @@ en `_yd`.
 derivada y descartable. Para iterar el esquema no hace falta volver a tocar la
 red.
 
-**Los palos se nombran por ranura (`clubTypeId`), no por id.** Al cambiar de
-set, el hierro 5 nuevo entra con otro id pero la misma ranura, así que hereda
-el nombre solo y los tiros viejos quedan en el palo viejo. Ver
-`config/club_labels.json`.
+**Los palos los nombra el jugador, por ranura.** Garmin manda el nombre del
+set, no el del palo: ocho hierros del mismo juego llegan todos iguales. Los
+nombres se editan desde la pestaña *Palos* y se guardan por `clubTypeId`, la
+posición en la bolsa. Al cambiar de set, el hierro 5 nuevo entra con otro id
+pero la misma ranura: hereda el nombre solo, y los tiros viejos quedan en el
+palo viejo, marcado como retirado.
 
 ## Layout
 
 ```
-src/garmin_golf/
+Makefile          tareas: levantar, actualizar, borrar, subir
+src/app/
   config.py       credenciales y rutas
   client.py       login con cache de token + MFA
   endpoints.py    URLs y rarezas verificadas de la API
@@ -156,9 +173,9 @@ src/garmin_golf/
   units.py        metros -> yardas
   etl.py          capa 2
   db.py / api.py  capa 3
+  session.py      login a Garmin y trabajos de sincronización
 web/              React + Vite
 db/init/          esquema SQL
-config/           mapeo de nombres de palos
 ```
 
 `data/`, `.env` y los tokens están en `.gitignore`.

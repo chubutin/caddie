@@ -25,7 +25,7 @@ from .units import YARDS_PER_METER
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="garmin-golf", version="0.1.0")
+app = FastAPI(title="Caddie Virtual", version="0.1.0")
 # Solo el front local. No "*": con POST de login en juego, un origen abierto
 # dejaria que cualquier pagina dispare un login desde tu browser.
 app.add_middleware(
@@ -823,3 +823,53 @@ def sync_status(job_id: str) -> dict[str, Any]:
     if job is None:
         raise HTTPException(404, "No existe ese trabajo.")
     return job.as_dict()
+
+
+# ------------------------------------------------- nombres de palos (usuario)
+# Garmin guarda en `model` el nombre del SET: ocho hierros del mismo juego
+# llegan todos como "Ping 430". Quien tiene que ponerles nombre es el jugador,
+# que sabe qué hay en su bolsa. Se nombra por RANURA (clubTypeId) para que un
+# set nuevo lo herede sin volver a cargar nada.
+
+class ClubLabelBody(BaseModel):
+    scope: str = "slot"
+    key: str
+    label: str
+
+
+@app.get("/api/club-labels")
+def club_labels() -> list[dict[str, Any]]:
+    return q("SELECT scope, key, label FROM club_labels ORDER BY scope, key")
+
+
+@app.put("/api/club-labels")
+def set_club_label(body: ClubLabelBody) -> dict[str, Any]:
+    """Poner o borrar el nombre de una ranura (o de un palo puntual).
+
+    Escribe también en `clubs` para que el cambio se vea sin recargar el ETL.
+    """
+    if body.scope not in ("slot", "club"):
+        raise HTTPException(400, "scope tiene que ser 'slot' o 'club'")
+    label = body.label.strip()
+    with connect() as conn, conn.cursor() as cur:
+        if label:
+            cur.execute(
+                """INSERT INTO club_labels (scope, key, label) VALUES (%s,%s,%s)
+                   ON CONFLICT (scope, key) DO UPDATE SET label = EXCLUDED.label""",
+                (body.scope, body.key, label),
+            )
+        else:
+            cur.execute(
+                "DELETE FROM club_labels WHERE scope = %s AND key = %s",
+                (body.scope, body.key),
+            )
+        if body.scope == "slot":
+            cur.execute(
+                "UPDATE clubs SET label = %s, slot = %s WHERE club_type_id = %s",
+                (label or None, label or None, int(body.key)),
+            )
+        else:
+            cur.execute("UPDATE clubs SET label = %s WHERE id = %s",
+                        (label or None, int(body.key)))
+        conn.commit()
+    return {"scope": body.scope, "key": body.key, "label": label or None}

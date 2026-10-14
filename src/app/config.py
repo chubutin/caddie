@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Raiz del repo: .../src/garmin_golf/config.py -> subir tres niveles
+# Raiz del repo: .../src/app/config.py -> subir tres niveles
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_TOKENSTORE = "~/.garminconnect"

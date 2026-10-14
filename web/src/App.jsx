@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { get, fmt } from './api'
+import { get, put, fmt } from './api'
 import Scorecard from './components/Scorecard'
 import Datos from './components/Datos'
 import {
@@ -78,6 +78,7 @@ function withClubNames(rows) {
     return {
       ...c,
       club_label: label,
+      club_label_raw: c.label || '',
       club_sub: slotShared && c.model ? c.model : null,
     }
   })
@@ -184,9 +185,39 @@ function Rondas() {
   )
 }
 
+/* Garmin no nombra los palos: el jugador es el único que sabe qué tiene en la
+   bolsa. Se edita por RANURA (clubTypeId), así un set nuevo en la misma
+   posición hereda el nombre sin volver a cargar nada. */
+function ClubNameInput({ club, onSaved }) {
+  const [value, setValue] = useState(club.club_label_raw ?? '')
+  const [saving, setSaving] = useState(false)
+  const original = club.club_label_raw ?? ''
+
+  async function save() {
+    if (value === original) return
+    setSaving(true)
+    try {
+      await put('/api/club-labels', {
+        scope: 'slot', key: String(club.club_type_id), label: value,
+      })
+      onSaved()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <input className="cell-edit" value={value} disabled={saving}
+           placeholder={club.model || `tipo ${club.club_type_id}`}
+           onChange={(e) => setValue(e.target.value)}
+           onBlur={save}
+           onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+           aria-label={`Nombre del palo en la posición ${club.club_type_id}`} />
+  )
+}
+
 function Palos() {
   const [soloBolsa, setSoloBolsa] = useState(false)
-  const clubs = useApi(`/api/clubs?solo_bolsa_actual=${soloBolsa}`, [soloBolsa])
+  const [version, setVersion] = useState(0)
+  const clubs = useApi(`/api/clubs?solo_bolsa_actual=${soloBolsa}`, [soloBolsa, version])
   const prep = withClubNames
   return (
     <>
@@ -207,15 +238,15 @@ function Palos() {
         <Panel state={clubs}>{(d) => <ClubRange data={prep(d)} />}</Panel>
       </Block>
       <Block title="Tus números contra los de Garmin" framed={false}
-             note="Garmin publica un promedio; acá calculamos la mediana sobre los tiros crudos. Cuando difieren, la mediana manda: el promedio se arrastra con topazos y tiros raros. Los palos sin nombre se mapean en config/club_labels.json.">
+             note="Garmin publica un promedio; acá calculamos la mediana sobre los tiros crudos. Cuando difieren, la mediana manda: el promedio se arrastra con topazos y tiros raros. Los nombres los ponés vos: Garmin manda el nombre del set, no el del palo. Se guardan por posición en la bolsa, así un juego nuevo los hereda.">
         <Panel state={clubs}>{(d) => (
           <Table rows={prep(d)} cols={[
             { k: 'club_label', h: 'Palo', f: (r) => (
-              <>
-                {r.club_label}
-                {r.club_sub && <span style={{ color: 'var(--ink-3)' }}> · {r.club_sub}</span>}
-                {r.retired && <span className="tag" style={{ marginLeft: 8 }}>retirado</span>}
-              </>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <ClubNameInput club={r} onSaved={() => setVersion((v) => v + 1)} />
+                {r.model && <span style={{ color: 'var(--ink-3)' }}>{r.model}</span>}
+                {r.retired && <span className="tag">retirado</span>}
+              </span>
             )},
             { k: 'shots_count', h: 'Tiros' },
             { k: 'shots_measured', h: 'Medidos' },

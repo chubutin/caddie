@@ -23,3 +23,6 @@ __pycache__/
 
 # --- macOS -------------------------------------------------------------------
 .DS_Store
+
+# Mapeo de palos: es de cada jugador, se edita desde la UI y vive en la base.
+config/club_labels*.json
