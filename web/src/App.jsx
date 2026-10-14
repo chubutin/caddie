@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { get, put, fmt } from './api'
+import { get, put, post, del, fmt } from './api'
 import Scorecard from './components/Scorecard'
 import Datos from './components/Datos'
 import {
@@ -223,10 +223,111 @@ function ClubNameInput({ club, onSaved }) {
   )
 }
 
+/* Etiquetas por RANURA, igual que los nombres: "hierros" o "wedges" son
+   propiedades de la posición en la bolsa, así que un set nuevo las hereda. */
+function ClubTags({ club, onChanged }) {
+  const [adding, setAdding] = useState(false)
+  const [value, setValue] = useState('')
+  const [error, setError] = useState(null)
+  const tags = club.tags || []
+
+  const key = { scope: 'slot', key: String(club.club_type_id) }
+
+  async function add() {
+    const tag = value.trim()
+    setAdding(false); setValue('')
+    if (!tag || tags.includes(tag)) return
+    try { await put('/api/club-tags', { ...key, tag }); onChanged() }
+    catch (e) { setError(e.message) }
+  }
+  async function remove(tag) {
+    try {
+      await del(`/api/club-tags?scope=${key.scope}&key=${key.key}&tag=${encodeURIComponent(tag)}`)
+      onChanged()
+    } catch (e) { setError(e.message) }
+  }
+
+  return (
+    <span className="tagcell">
+      {tags.map((tg) => (
+        <button key={tg} className="chip chip-del" onClick={() => remove(tg)}
+                title={`Quitar "${tg}"`}>{tg}<span aria-hidden>×</span></button>
+      ))}
+      {adding ? (
+        <input className="cell-edit tag-input" autoFocus value={value}
+               placeholder="etiqueta"
+               onChange={(e) => setValue(e.target.value)}
+               onBlur={add}
+               onKeyDown={(e) => {
+                 if (e.key === 'Enter') e.target.blur()
+                 if (e.key === 'Escape') { setAdding(false); setValue('') }
+               }} />
+      ) : (
+        <button className="chip chip-add" onClick={() => setAdding(true)}
+                title="Agregar etiqueta">+</button>
+      )}
+      {error && <span className="save-failed">{error}</span>}
+    </span>
+  )
+}
+
+/* Renombrar o borrar una etiqueta en todos los palos de una. Editarla fila
+   por fila con seis hierros es una invitación a dejar la mitad con el nombre
+   viejo. */
+function TagEditor({ tags, onChanged, onClose }) {
+  const [error, setError] = useState(null)
+
+  async function rename(de, a) {
+    if (!a.trim() || a.trim() === de) return
+    try { await post('/api/club-tags/renombrar', { de, a: a.trim() }); onChanged() }
+    catch (e) { setError(e.message) }
+  }
+  async function removeAll(tag) {
+    try { await del(`/api/club-tags/todas?tag=${encodeURIComponent(tag)}`); onChanged() }
+    catch (e) { setError(e.message) }
+  }
+
+  return (
+    <div className="framed plot" style={{ marginBottom: 16 }}>
+      <p className="edit-hint" style={{ marginTop: 0 }}>
+        Cambiá el nombre y apretá Enter: se aplica a todos los palos que la tengan.
+      </p>
+      <div className="tag-editor">
+        {tags.map((t) => (
+          <span key={t.tag} className="tag-row">
+            <input className="cell-edit" defaultValue={t.tag}
+                   onBlur={(e) => rename(t.tag, e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                   aria-label={`Renombrar la etiqueta ${t.tag}`} />
+            <span className="k">{t.clubs} {t.clubs === 1 ? 'palo' : 'palos'}</span>
+            <button className="btn-quiet btn-tiny" onClick={() => removeAll(t.tag)}>
+              Borrar de todos
+            </button>
+          </span>
+        ))}
+      </div>
+      {error && <p className="msg err">{error}</p>}
+      <button className="btn-quiet" style={{ marginTop: 12 }} onClick={onClose}>Listo</button>
+    </div>
+  )
+}
+
 function Palos() {
-  const [soloBolsa, setSoloBolsa] = useState(false)
+  const [estado, setEstado] = useState('todos')
+  const [tags, setTags] = useState([])
+  const [models, setModels] = useState([])
   const [version, setVersion] = useState(0)
-  const clubs = useApi(`/api/clubs?solo_bolsa_actual=${soloBolsa}`, [soloBolsa, version])
+  const [editTags, setEditTags] = useState(false)
+  const query = new URLSearchParams({ estado })
+  tags.forEach((t) => query.append('tag', t))
+  models.forEach((m) => query.append('model', m))
+  const clubs = useApi(`/api/clubs?${query}`, [estado, tags.join('|'), models.join('|'), version])
+  // Sumar o sacar un valor de un filtro de selección múltiple.
+  const toggle = (list, set) => (v) =>
+    set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v])
+  const allTags = useApi('/api/club-tags', [version])
+  const allClubs = useApi('/api/clubs?estado=todos', [version])
+  const refresh = () => setVersion((v) => v + 1)
   const prep = withClubNames
   return (
     <>
@@ -236,12 +337,66 @@ function Palos() {
         palos retirados siguen acá: sus tiros son historia real y sacarlos
         falsearía las temporadas en que los jugaste.
       </p>
-      <div className="switch" style={{ marginBottom: 18 }}>
-        {[[false, 'Toda la bolsa'], [true, 'Solo los que juego hoy']].map(([v, l]) => (
-          <button key={String(v)} aria-current={soloBolsa === v}
-                  onClick={() => setSoloBolsa(v)}>{l}</button>
-        ))}
+      <div className="filters">
+        <div className="switch">
+          {[['todos', 'Todos'], ['activos', 'En la bolsa'], ['retirados', 'Retirados']]
+            .map(([v, l]) => (
+              <button key={v} aria-current={estado === v} onClick={() => setEstado(v)}>{l}</button>
+            ))}
+        </div>
+
+        <Panel state={allClubs}>{(d) => {
+          const opciones = [...new Set(d.map((c) => c.model).filter(Boolean))]
+          return opciones.length > 1 ? (
+            <span className="chips">
+              <span className="chips-label">Set</span>
+              {opciones.map((m) => (
+                <button key={m} className="chip" aria-pressed={models.includes(m)}
+                        onClick={() => toggle(models, setModels)(m)}>{m}</button>
+              ))}
+            </span>
+          ) : null
+        }}</Panel>
+
+        <Panel state={allTags} empty="">{(d) => d.length ? (
+          <span className="chips">
+            <span className="chips-label">Etiquetas</span>
+            {d.map((t) => (
+              <button key={t.tag} className="chip" aria-pressed={tags.includes(t.tag)}
+                      onClick={() => toggle(tags, setTags)(t.tag)}>
+                {t.tag}<span className="chip-n">{t.clubs}</span>
+              </button>
+            ))}
+            <button className="chip chip-add" onClick={() => setEditTags(!editTags)}
+                    title="Renombrar o borrar etiquetas">editar</button>
+          </span>
+        ) : null}</Panel>
+
+        {(tags.length || models.length || estado !== 'todos') ? (
+          <button className="btn-quiet"
+                  onClick={() => { setTags([]); setModels([]); setEstado('todos') }}>
+            Limpiar filtros
+          </button>
+        ) : null}
       </div>
+
+      {editTags && (
+        <Panel state={allTags}>{(d) => (
+          <TagEditor tags={d} onChanged={refresh} onClose={() => setEditTags(false)} />
+        )}</Panel>
+      )}
+
+      <Panel state={clubs}>{(d) => {
+        const tiros = d.reduce((a, c) => a + (Number(c.shots_count) || 0), 0)
+        const conDist = d.filter((c) => c.median_yd !== null)
+        return (
+          <p className="filter-summary">
+            {d.length} {d.length === 1 ? 'palo' : 'palos'}, {tiros.toLocaleString('es-AR')} tiros
+            {conDist.length > 1 && ` · de ${Math.min(...conDist.map((c) => Number(c.median_yd)))}`
+              + ` a ${Math.max(...conDist.map((c) => Number(c.median_yd)))} yd`}
+          </p>
+        )
+      }}</Panel>
       <Block title="Distancia por palo"
              note="La mediana con su rango intercuartil, sin putts. AutoShot no siempre identifica el palo, así que la muestra es menor que el total de golpes.">
         <Panel state={clubs}>{(d) => <ClubRange data={prep(d)} />}</Panel>
@@ -255,7 +410,7 @@ function Palos() {
           <Table rows={prep(d)} cols={[
             { k: 'club_label', h: 'Palo ✎', f: (r) => (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <ClubNameInput club={r} onSaved={() => setVersion((v) => v + 1)} />
+                <ClubNameInput club={r} onSaved={refresh} />
                 {r.model && <span style={{ color: 'var(--ink-3)' }}>{r.model}</span>}
                 {r.retired && <span className="tag">retirado</span>}
               </span>

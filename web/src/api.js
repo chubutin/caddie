@@ -28,6 +28,13 @@ export async function put(path, body) {
   return data
 }
 
+export async function del(path) {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail || `${res.status} ${res.statusText}`)
+  return data
+}
+
 // Las distancias ya vienen en yardas desde la API (campos *_yd).
 export const num = (v) => (v === null || v === undefined ? null : Number(v))
 export const fmt = (v, d = 0) =>

@@ -64,6 +64,19 @@ def snapshot_for_round(
     return max(snaps, key=lambda s: len(s.get("holePars") or ""), default={})
 
 
+def clean_text(value: Any) -> str | None:
+    """Limpiar espacios de los textos que el usuario tipeo en la app de Garmin.
+
+    Garmin guarda verbatim lo que se escribe. Un espacio al final convierte
+    "Srixion " en un set distinto de "Srixion" y parte las estadisticas en
+    dos sin que se note: en pantalla las dos cadenas se ven iguales.
+    """
+    if not isinstance(value, str):
+        return value
+    cleaned = " ".join(value.split())
+    return cleaned or None
+
+
 def hole_par(hole_pars: str, number: int) -> int | None:
     """Par del hoyo `number` (1-based), repitiendo ciclicamente.
 
@@ -417,7 +430,7 @@ class Etl:
                     overrides.get(str(club.get("id")))
                     or slots.get(str(club.get("clubTypeId"))),
                     slots.get(str(club.get("clubTypeId"))),
-                    club.get("model"), club.get("name"),
+                    clean_text(club.get("model")), clean_text(club.get("name")),
                     club.get("clubTypeId"), club.get("flexTypeId"),
                     club.get("shaftLength"), bool(club.get("retired")),
                     bool(club.get("deleted")),

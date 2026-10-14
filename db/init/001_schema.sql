@@ -196,6 +196,19 @@ COMMENT ON COLUMN club_labels.scope IS
   'slot -> por clubTypeId, lo hereda un set nuevo en la misma posicion de la
    bolsa. club -> por id de palo, para excepciones.';
 
+-- Etiquetas de palos puestas por el usuario, para agrupar y filtrar.
+-- Mismo criterio que club_labels: el TRUNCATE del ETL no la toca.
+CREATE TABLE club_tags (
+    scope TEXT NOT NULL CHECK (scope IN ('slot','club')),
+    key   TEXT NOT NULL,
+    tag   TEXT NOT NULL,
+    PRIMARY KEY (scope, key, tag)
+);
+COMMENT ON COLUMN club_tags.scope IS
+  'slot -> por clubTypeId, la hereda un set nuevo en la misma posicion
+   ("hierros", "wedges"). club -> por id de palo, para lo que es propio de
+   ese palo y no de la posicion ("set viejo").';
+
 -- --------------------------------------------- perfil derivado de un hoyo --
 CREATE TABLE hole_profiles (
     course_global_id   BIGINT NOT NULL REFERENCES courses ON DELETE CASCADE,

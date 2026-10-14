@@ -148,6 +148,11 @@ en `_yd`.
 derivada y descartable. Para iterar el esquema no hace falta volver a tocar la
 red.
 
+**Los palos se filtran por estado, set y etiquetas.** El estado (en la bolsa
+/ retirado) y el set salen de la data sin configurar nada; las etiquetas las
+pone el jugador. Dentro de una dimensión los valores se suman —*wedges* más
+*maderas* muestra los dos grupos— y entre dimensiones se cruzan.
+
 **Los palos los nombra el jugador, por ranura.** Garmin manda el nombre del
 set, no el del palo: ocho hierros del mismo juego llegan todos iguales. Los
 nombres se editan desde la pestaña *Palos* y se guardan por `clubTypeId`, la

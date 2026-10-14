@@ -34,7 +34,7 @@ app.add_middleware(
         f"http://localhost:{os.getenv('WEB_PORT', '5173')}",
         f"http://127.0.0.1:{os.getenv('WEB_PORT', '5173')}",
     ],
-    allow_methods=["GET", "POST", "PUT"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -141,7 +141,11 @@ def round_detail(round_id: int) -> dict[str, Any]:
 
 
 @app.get("/api/clubs")
-def clubs(solo_bolsa_actual: bool = False) -> list[dict[str, Any]]:
+def clubs(
+    estado: str = "todos",
+    tag: list[str] | None = Query(None),
+    model: list[str] | None = Query(None),
+) -> list[dict[str, Any]]:
     """Distancias por palo. Dos fuentes: la que calcula Garmin y la nuestra.
 
     La nuestra sale de los tiros con palo asignado; `shots_measured` dice
@@ -150,9 +154,26 @@ def clubs(solo_bolsa_actual: bool = False) -> list[dict[str, Any]]:
 
     Los palos retirados se incluyen por defecto: sus tiros son historia real y
     sacarlos falsearia los promedios de las temporadas en que los jugaste.
-    `solo_bolsa_actual=true` deja unicamente los que siguen en la bolsa.
+
+    Filtros: `estado` (todos | activos | retirados), `tag` y `model`, los dos
+    repetibles. Dentro de una misma dimension los valores se SUMAN (elegir
+    "wedges" y "hierros" muestra los dos grupos); entre dimensiones distintas
+    se cruzan (estado activo Y etiqueta wedges).
     """
-    where = "WHERE NOT c.retired AND NOT c.deleted" if solo_bolsa_actual else ""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if estado == "activos":
+        clauses.append("NOT c.retired AND NOT c.deleted")
+    elif estado == "retirados":
+        clauses.append("c.retired OR c.deleted")
+    if tag:
+        # Interseccion de arrays: el palo tiene AL MENOS una de las elegidas.
+        clauses.append("tg.tags && %s::text[]")
+        params.append(list(tag))
+    if model:
+        clauses.append("c.model = ANY(%s::text[])")
+        params.append(list(model))
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     return q(
         f"""
         SELECT c.id, c.label, c.slot, c.model, c.name, c.club_type_id,
@@ -166,7 +187,8 @@ def clubs(solo_bolsa_actual: bool = False) -> list[dict[str, Any]]:
                m.shots_measured,
                round((m.median_m {YD})::numeric, 0) AS median_yd,
                round((m.p25_m    {YD})::numeric, 0) AS p25_yd,
-               round((m.p75_m    {YD})::numeric, 0) AS p75_yd
+               round((m.p75_m    {YD})::numeric, 0) AS p75_yd,
+               tg.tags
         FROM clubs c
         LEFT JOIN (
             SELECT club_id,
@@ -179,12 +201,20 @@ def clubs(solo_bolsa_actual: bool = False) -> list[dict[str, Any]]:
               AND NOT exclude_from_stats AND meters > 0
             GROUP BY club_id
         ) m ON m.club_id = c.id
+        LEFT JOIN LATERAL (
+            -- Las de la ranura y las del palo, juntas.
+            SELECT coalesce(array_agg(DISTINCT t.tag ORDER BY t.tag), '{{}}') AS tags
+            FROM club_tags t
+            WHERE (t.scope = 'club' AND t.key = c.id::text)
+               OR (t.scope = 'slot' AND t.key = c.club_type_id::text)
+        ) tg ON TRUE
         {where}
         -- Los que jugas hoy primero y en orden de bolsa (driver -> putter).
         -- Ordenar por distancia mandaba los palos nuevos al fondo, justo los
         -- que hay que nombrar: todavia no tienen un solo tiro medido.
         ORDER BY c.retired, c.club_type_id
-        """
+        """,
+        tuple(params),
     )
 
 
@@ -876,3 +906,93 @@ def set_club_label(body: ClubLabelBody) -> dict[str, Any]:
                         (label or None, int(body.key)))
         conn.commit()
     return {"scope": body.scope, "key": body.key, "label": label or None}
+
+
+class ClubTagBody(BaseModel):
+    scope: str = "slot"
+    key: str
+    tag: str
+
+
+@app.get("/api/club-tags")
+def club_tags() -> list[dict[str, Any]]:
+    """Etiquetas existentes, con cuántos palos usa cada una."""
+    return q(
+        """
+        SELECT t.tag, count(DISTINCT c.id) AS clubs
+        FROM club_tags t
+        JOIN clubs c ON (t.scope = 'club' AND t.key = c.id::text)
+                     OR (t.scope = 'slot' AND t.key = c.club_type_id::text)
+        GROUP BY t.tag ORDER BY t.tag
+        """
+    )
+
+
+@app.put("/api/club-tags")
+def add_club_tag(body: ClubTagBody) -> dict[str, Any]:
+    tag = body.tag.strip()
+    if body.scope not in ("slot", "club"):
+        raise HTTPException(400, "scope tiene que ser 'slot' o 'club'")
+    if not tag:
+        raise HTTPException(400, "la etiqueta no puede estar vacía")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO club_tags (scope, key, tag) VALUES (%s,%s,%s)
+               ON CONFLICT DO NOTHING""",
+            (body.scope, body.key, tag),
+        )
+        conn.commit()
+    return {"scope": body.scope, "key": body.key, "tag": tag}
+
+
+class RenameTagBody(BaseModel):
+    de: str
+    a: str
+
+
+@app.post("/api/club-tags/renombrar")
+def rename_club_tag(body: RenameTagBody) -> dict[str, Any]:
+    """Renombrar una etiqueta en todos los palos que la tengan.
+
+    Sin esto habria que editarla fila por fila, que con seis hierros es una
+    invitacion a dejar la mitad con el nombre viejo.
+    """
+    de, a = body.de.strip(), body.a.strip()
+    if not de or not a:
+        raise HTTPException(400, "faltan el nombre viejo o el nuevo")
+    if de == a:
+        return {"renombrados": 0}
+    with connect() as conn, conn.cursor() as cur:
+        # Si ya existia la etiqueta destino en alguna ranura, la vieja se
+        # funde con ella en vez de chocar contra la clave primaria.
+        cur.execute(
+            "DELETE FROM club_tags t WHERE t.tag = %s AND EXISTS ("
+            "  SELECT 1 FROM club_tags o"
+            "  WHERE o.tag = %s AND o.scope = t.scope AND o.key = t.key)",
+            (de, a),
+        )
+        cur.execute("UPDATE club_tags SET tag = %s WHERE tag = %s", (a, de))
+        renamed = cur.rowcount
+        conn.commit()
+    return {"renombrados": renamed, "de": de, "a": a}
+
+
+@app.delete("/api/club-tags/todas")
+def remove_tag_everywhere(tag: str) -> dict[str, Any]:
+    """Borrar una etiqueta de todos los palos."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM club_tags WHERE tag = %s", (tag,))
+        removed = cur.rowcount
+        conn.commit()
+    return {"borradas": removed, "tag": tag}
+
+
+@app.delete("/api/club-tags")
+def remove_club_tag(scope: str, key: str, tag: str) -> dict[str, Any]:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM club_tags WHERE scope=%s AND key=%s AND tag=%s",
+            (scope, key, tag),
+        )
+        conn.commit()
+    return {"removed": True}
