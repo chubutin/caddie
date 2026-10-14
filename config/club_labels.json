@@ -1,0 +1,39 @@
+{
+  "_readme": [
+    "Nombres de los palos.",
+    "",
+    "Garmin guarda en 'model' el nombre del JUEGO, no el del palo: los ocho",
+    "hierros del set G430 llegan todos como 'Ping 430'. Lo que distingue un",
+    "palo de otro es el clubTypeId.",
+    "",
+    "Por eso los nombres se mapean por clubTypeId (la RANURA en la bolsa) y no",
+    "por id de palo. Cuando cambies de set, el nuevo hierro 5 entra con un id",
+    "nuevo pero el mismo clubTypeId 14, asi que hereda el nombre solo. Los",
+    "tiros viejos siguen pegados al palo viejo: no se mezcla nada.",
+    "",
+    "'overrides' es por id de palo, para los casos que la ranura no resuelve.",
+    "",
+    "OJO: shaftLength NO sirve para identificar palos — varios traen 45.5 por",
+    "defecto, que es largo de driver.",
+    "",
+    "Editar y volver a correr:  docker compose run --rm etl"
+  ],
+  "slots": {
+    "1": "Driver",
+    "2": "Madera 3",
+    "13": "Híbrido",
+    "14": "Hierro 5",
+    "15": "Hierro 6",
+    "16": "Hierro 7",
+    "17": "Hierro 8",
+    "18": "Hierro 9",
+    "19": "PW",
+    "20": "52°",
+    "21": "56°",
+    "22": "60°",
+    "23": "Putter"
+  },
+  "overrides": {
+    "844165866": "Ping 400"
+  }
+}

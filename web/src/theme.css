@@ -1,0 +1,262 @@
+/* =============================================================================
+   Sistema visual: gramática de tarjeta de golf, vestida con la identidad de la
+   Copa Poletti Classic.
+
+   El golf ya tiene su lenguaje de información y tiene 400 años: la tarjeta.
+   Grilla de 18 celdas, círculo para bajo par, cuadrado para sobre par, todo
+   relativo al par. Cualquier golfista lo lee sin instrucciones.
+
+   CROMO = MARCA, DATO = APARTE. Los cuatro colores Poletti (crema, azul
+   marino, tostado, salvia) son colores de cromo: no tienen croma suficiente
+   para codificar series, y el azul marino chocaría con cualquier dato azul.
+   Entonces la marca se queda con fondos, texto, reglas y acentos, y los datos
+   se mueven a terracota + teal, que no se confunden con nada de la marca.
+
+   Todo validado con validate_palette.js contra las superficies REALES donde
+   se dibujan los gráficos — el panel, no la página:
+     claro  sobre crema #F8EEE6   · categórica y rampa ordinal: PASS
+     oscuro sobre azul  #1E334B   · categórica y rampa ordinal: PASS
+   La rampa oscura se aclaró hasta #A85420 porque sobre el azul Poletti el
+   paso más oscuro caía a 1.76:1 y reprobaba.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,300..800;1,62..125,400&family=Lora:ital,wght@0,400..700;1,400..600&display=swap');
+
+:root {
+  color-scheme: light;
+
+  /* --- marca Poletti --- */
+  --poletti-navy:  #1e334b;
+  --poletti-sage:  #5a6749;
+  --poletti-tan:   #c7b9a3;
+  --poletti-cream: #f8eee6;
+
+  --paper:        #f3e9e0;
+  --paper-raised: #f8eee6;   /* el crema de la marca es el panel */
+  --paper-sunk:   #ece0d4;
+  --ink:          #1e334b;   /* el azul marino es la tinta */
+  --ink-2:        #4a5a6b;
+  --ink-3:        #726a5e;
+  --rule:         #e0d4c6;
+  --rule-strong:  #c7b9a3;   /* tostado de la marca */
+  --accent:       #5a6749;   /* salvia: navegación activa */
+
+  --series-1: #b4542a;
+  --series-2: #00897c;
+
+  --ord-1: #dd9158;
+  --ord-2: #c96a36;
+  --ord-3: #7c3310;
+  --on-ord-1: #2a1708;
+  --on-ord-2: #ffffff;
+  --on-ord-3: #ffffff;
+
+  --grid: #e5d9cb;
+  --shadow-lift: 0 1px 2px rgba(30, 51, 75, .06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper:        #121d29;
+    --paper-raised: #1e334b;   /* el panel ES el azul Poletti */
+    --paper-sunk:   #0c141d;
+    --ink:          #f8eee6;   /* crema de la marca */
+    --ink-2:        #b8c3ce;
+    --ink-3:        #95a5b4;
+    --rule:         #2c4360;
+    --rule-strong:  #3e5775;
+    --accent:       #8a9977;   /* salvia aclarada para el fondo oscuro */
+
+    --series-1: #d9743d;
+    --series-2: #19a091;
+
+    --ord-1: #f5c7a8;
+    --ord-2: #e08a4c;
+    --ord-3: #a85420;
+    --on-ord-1: #2a1708;
+    --on-ord-2: #2a1708;
+    --on-ord-3: #ffffff;
+
+    --grid: #2a3f59;
+    --shadow-lift: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #121d29; --paper-raised: #1e334b; --paper-sunk: #0c141d;
+  --ink: #f8eee6; --ink-2: #b8c3ce; --ink-3: #95a5b4;
+  --rule: #2c4360; --rule-strong: #3e5775; --accent: #8a9977;
+  --series-1: #d9743d; --series-2: #19a091;
+  --ord-1: #f5c7a8; --ord-2: #e08a4c; --ord-3: #a85420;
+  --on-ord-1: #2a1708; --on-ord-2: #2a1708; --on-ord-3: #ffffff;
+  --grid: #2a3f59; --shadow-lift: none;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Las cifras son la tipografia protagonista: Archivo tiene eje de ancho, asi
+   que las grandes van expandidas y los encabezados densos van estrechos. */
+.fig       { font-variation-settings: 'wdth' 112, 'wght' 600; letter-spacing: -.015em; }
+.fig-xl    { font-variation-settings: 'wdth' 118, 'wght' 650; letter-spacing: -.03em; line-height: 1; }
+.col-label { font-variation-settings: 'wdth' 80, 'wght' 550; font-size: 12px; color: var(--ink-3); }
+
+/* ---------------------------------------------------------------- estructura */
+.shell { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100vh; }
+
+.rail {
+  border-right: 1px solid var(--rule);
+  padding: 26px 0 40px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: var(--paper);
+}
+.rail .mark { padding: 0 22px 22px; }
+.rail .mark b {
+  display: block; font-family: Lora, Georgia, serif;
+  font-size: 24px; font-weight: 600; letter-spacing: -.01em; line-height: 1.1;
+}
+.rail .mark span { font-size: 12.5px; color: var(--ink-3); line-height: 1.35; display: block; }
+.rail nav { display: flex; flex-direction: column; }
+.rail nav button {
+  font: inherit; font-size: 14px; text-align: left;
+  padding: 8px 22px; border: 0; background: none; cursor: pointer;
+  color: var(--ink-2); border-left: 2px solid transparent;
+}
+.rail nav button:hover { color: var(--ink); background: var(--paper-sunk); }
+.rail nav button[aria-current="true"] {
+  color: var(--ink); border-left-color: var(--accent);
+  font-variation-settings: 'wght' 600;
+}
+.rail nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+main { padding: 30px 40px 90px; max-width: 1340px; }
+
+h1.page {
+  font-family: Lora, Georgia, serif; font-weight: 600;
+  font-size: 28px; margin: 0 0 3px; letter-spacing: -.012em;
+}
+p.page-note { color: var(--ink-2); font-size: 14px; margin: 0 0 26px; max-width: 72ch; }
+
+/* Los bloques NO son todos la misma tarjeta: el agrupamiento es por regla y
+   espacio. Solo lo que necesita contenedor lo tiene. */
+section.block { margin: 0 0 38px; }
+section.block > h2 {
+  font-size: 16px; margin: 0 0 3px;
+  font-variation-settings: 'wdth' 102, 'wght' 620; letter-spacing: -.01em;
+}
+section.block > .note { color: var(--ink-2); font-size: 13px; margin: 0 0 16px; max-width: 76ch; }
+section.block > .plot { margin-top: 4px; }
+
+.framed {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+/* ------------------------------------------------------------------- cifras */
+.headline { display: flex; align-items: flex-end; gap: 30px; flex-wrap: wrap; margin-bottom: 8px; }
+.headline .big { font-size: 68px; }
+.headline .big small {
+  font-size: 19px; color: var(--ink-2); margin-left: 14px;
+  font-variation-settings: 'wdth' 96, 'wght' 450;
+  letter-spacing: 0; vertical-align: baseline;
+}
+.headline .caption { color: var(--ink-2); font-size: 14px; max-width: 42ch; padding-bottom: 7px; }
+
+.figrow { display: flex; gap: 34px; flex-wrap: wrap; padding: 2px 0 4px; }
+.figrow > div { min-width: 92px; }
+.figrow .v { font-size: 27px; }
+.figrow .k { font-size: 12.5px; color: var(--ink-3); }
+
+/* ------------------------------------------------- gramatica de la tarjeta */
+.scorecard { display: grid; gap: 2px 0; grid-auto-flow: column; overflow-x: auto; padding-bottom: 4px; }
+.sc-col { display: grid; grid-template-rows: auto auto auto; gap: 3px; justify-items: center; min-width: 34px; }
+.sc-hole { font-size: 11px; color: var(--ink-3); font-variation-settings: 'wdth' 80, 'wght' 550; }
+.sc-par  { font-size: 11px; color: var(--ink-3); }
+.sc-box  {
+  width: 28px; height: 28px; display: grid; place-items: center;
+  font-size: 14px; font-variation-settings: 'wdth' 105, 'wght' 600;
+  color: var(--ink);
+}
+/* Convencion de tarjeta: circulo = bajo par, cuadrado = sobre par. */
+.sc-box.birdie { border: 1.5px solid var(--ink); border-radius: 50%; }
+.sc-box.eagle  { border: 1.5px solid var(--ink); border-radius: 50%;
+                 box-shadow: 0 0 0 3px var(--paper), 0 0 0 4.5px var(--ink); }
+.sc-box.bogey  { border: 1.5px solid var(--ink-2); border-radius: 2px; }
+.sc-box.dbl    { border: 1.5px solid var(--ink-2); border-radius: 2px;
+                 box-shadow: 0 0 0 3px var(--paper), 0 0 0 4.5px var(--ink-2); }
+.sc-box.blank  { color: var(--ink-3); }
+.sc-sep { width: 1px; background: var(--rule); margin: 0 7px; }
+.sc-legend { display: flex; gap: 18px; font-size: 12px; color: var(--ink-3); margin-top: 14px; align-items: center; }
+.sc-legend i { display: inline-grid; place-items: center; width: 18px; height: 18px;
+  font-style: normal; font-size: 10px; margin-right: 5px; color: var(--ink-2); }
+.sc-legend i.c { border: 1.3px solid var(--ink); border-radius: 50%; }
+.sc-legend i.s { border: 1.3px solid var(--ink-2); border-radius: 2px; }
+
+/* ------------------------------------------------------------------- tablas */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: right; padding: 7px 11px; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th {
+  font-size: 12px; color: var(--ink-3);
+  font-variation-settings: 'wdth' 82, 'wght' 550;
+  border-bottom: 1px solid var(--rule-strong); padding-bottom: 6px;
+}
+tbody tr { border-bottom: 1px solid var(--rule); }
+tbody tr:last-child { border-bottom: 0; }
+td { color: var(--ink-2); }
+td:first-child { color: var(--ink); }
+
+/* ------------------------------------------------------------------ controles */
+.switch { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.switch button {
+  font: inherit; font-size: 13px; padding: 6px 15px; border: 0; cursor: pointer;
+  background: var(--paper-raised); color: var(--ink-2);
+  border-right: 1px solid var(--rule);
+}
+.switch button:last-child { border-right: 0; }
+.switch button[aria-current="true"] {
+  background: var(--series-1); color: #fff; font-variation-settings: 'wght' 600;
+}
+.switch button:focus-visible { outline: 2px solid var(--series-1); outline-offset: -3px; }
+
+.legend { display: flex; gap: 17px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin-bottom: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+.msg { color: var(--ink-3); padding: 24px 0; font-size: 14px; }
+.err { color: var(--series-2); }
+.tag { font-size: 11.5px; padding: 1px 7px; border-radius: 4px;
+  border: 1px solid var(--rule-strong); color: var(--ink-3); }
+
+a, .linklike {
+  color: var(--series-1); background: none; border: 0; padding: 0;
+  font: inherit; cursor: pointer; text-align: left;
+}
+.linklike:hover { text-decoration: underline; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--rule); }
+  .rail nav { flex-direction: row; overflow-x: auto; }
+  .rail nav button { border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .rail nav button[aria-current="true"] { border-left: 0; border-bottom-color: var(--accent); }
+  main { padding: 22px 18px 70px; }
+  .headline .big { font-size: 52px; }
+}

@@ -1,0 +1,79 @@
+name: garmin-golf
+
+services:
+  db:
+    # imresamu/postgis es multi-arch: tiene arm64 nativo. La imagen oficial
+    # postgis/postgis es solo amd64 y en Apple Silicon corre emulada (lento).
+    image: ${POSTGIS_IMAGE:-imresamu/postgis:16-3.5}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-golf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-golf}
+      POSTGRES_DB: ${POSTGRES_DB:-golf}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Solo corre la primera vez, con el volumen vacio.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-golf} -d ${POSTGRES_DB:-golf}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Capa 2: lee data/raw y la carga en Postgres. No es un servicio que queda
+  # corriendo: se invoca a demanda con `docker compose run --rm etl`.
+  etl:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-golf}:${POSTGRES_PASSWORD:-golf}@db:5432/${POSTGRES_DB:-golf}
+      GARMIN_GOLF_RAW_DIR: /data/raw
+    volumes:
+      # Solo lectura: el ETL nunca toca la data cruda.
+      - ./data/raw:/data/raw:ro
+    command: ["python", "-m", "garmin_golf.etl"]
+    profiles: ["tools"]
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-golf}:${POSTGRES_PASSWORD:-golf}@db:5432/${POSTGRES_DB:-golf}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    command: ["uvicorn", "garmin_golf.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./src:/app/src:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    environment:
+      # El browser pega al host, no a la red interna de compose.
+      VITE_API_URL: http://localhost:${API_PORT:-8000}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./web/src:/app/src
+      - ./web/index.html:/app/index.html:ro
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+volumes:
+  pgdata:
