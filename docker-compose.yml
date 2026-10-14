@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-golf}
       POSTGRES_DB: ${POSTGRES_DB:-golf}
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Solo corre la primera vez, con el volumen vacio.
@@ -48,11 +48,18 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-golf}:${POSTGRES_PASSWORD:-golf}@db:5432/${POSTGRES_DB:-golf}
+      GARMIN_GOLF_RAW_DIR: /data/raw
+      GARMINTOKENS: /tokens/.garminconnect
+      WEB_PORT: ${WEB_PORT:-5173}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8010}:8000"
     command: ["uvicorn", "garmin_golf.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./src:/app/src:ro
+      # La API sincroniza: escribe el raw y guarda el token OAuth.
+      # El token es lo UNICO que se persiste; la contraseña nunca toca disco.
+      - ./data/raw:/data/raw
+      - garmin-tokens:/tokens
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')\""]
       interval: 5s
@@ -69,7 +76,7 @@ services:
       # El browser pega al host, no a la red interna de compose.
       VITE_API_URL: http://localhost:${API_PORT:-8000}
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
     volumes:
       - ./web/src:/app/src
       - ./web/index.html:/app/index.html:ro
@@ -77,3 +84,4 @@ services:
 
 volumes:
   pgdata:
+  garmin-tokens:

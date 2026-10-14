@@ -37,9 +37,23 @@ docker compose run --rm etl   # docker: data/raw -> Postgres
 
 La UI queda en **http://localhost:5173**, la API en **http://localhost:8010**.
 
-**La capa 1 corre fuera de Docker a propósito**: el login puede pedir un código
-MFA por stdin y el token vive en `~/.garminconnect`. Meterlo en un contenedor
-complica el prompt interactivo sin ganar nada.
+También se puede sincronizar **desde la UI**, en la pestaña *Datos*: entrás con
+tu cuenta de Garmin (incluido el MFA, que ahí funciona mejor que por stdin) y
+un botón trae las vueltas nuevas y recarga la base.
+
+### Credenciales
+
+La contraseña se usa **una sola vez** para que Garmin emita el token OAuth, y
+no se guarda en ningún lado: no va a la base, no queda en el navegador, no se
+escribe en los logs. Lo único que se persiste es el token, en un volumen de
+Docker. Es exactamente lo mismo que ya pasaba corriendo el CLI a mano.
+
+El estado pendiente del MFA vive en memoria del proceso de la API y se vence a
+los cinco minutos: no se serializa a ningún lado.
+
+**La API no tiene autenticación propia.** Por eso los tres puertos están
+atados a `127.0.0.1` en `docker-compose.yml`. Si alguna vez esto corre en un
+servidor, hay que ponerle auth antes de exponerlo.
 
 | Servicio | Qué es | Puerto |
 |---|---|---|

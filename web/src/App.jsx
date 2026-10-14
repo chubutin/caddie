@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { get, fmt } from './api'
 import Scorecard from './components/Scorecard'
+import Datos from './components/Datos'
 import {
   TrendChart, ClubRange, OrdinalStack, LateralChart, ScoreByDistance,
   ProbChart, PairedChart, PUTT_SEGMENTS, ORD_SEGMENTS,
@@ -490,6 +491,7 @@ const TABS = [
   ['Putting', Putting],
   ['Canchas', Canchas],
   ['Calidad', Calidad],
+  ['Datos', Datos],
 ]
 
 export default function App() {

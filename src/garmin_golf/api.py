@@ -6,20 +6,35 @@ Todo campo de distancia que sale por la API termina en `_yd`.
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
+from garminconnect import (
+    GarminConnectAuthenticationError,
+    GarminConnectTooManyRequestsError,
+)
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
+from . import session
 from .db import connect
 from .stats import with_ci
 from .units import YARDS_PER_METER
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="garmin-golf", version="0.1.0")
+# Solo el front local. No "*": con POST de login en juego, un origen abierto
+# dejaria que cualquier pagina dispare un login desde tu browser.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # uso local
-    allow_methods=["GET"],
+    allow_origins=[
+        f"http://localhost:{os.getenv('WEB_PORT', '5173')}",
+        f"http://127.0.0.1:{os.getenv('WEB_PORT', '5173')}",
+    ],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -724,3 +739,81 @@ def hero() -> dict[str, Any]:
         """
     )
     return {"round": head, "holes": holes, "avg_vs_par_10": prev["avg_vs_par"] if prev else None}
+
+
+# ============================================================ login y sync
+# La contraseña se usa una sola vez para acuñar el token OAuth y no se guarda
+# en ningun lado. Ver session.py.
+#
+# OJO: esta API no tiene autenticacion propia. Los puertos estan atados a
+# 127.0.0.1 en docker-compose justamente por esto: si alguna vez corre en un
+# servidor, hay que ponerle auth ANTES de exponerla.
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+class MfaBody(BaseModel):
+    session: str
+    code: str
+
+
+@app.get("/api/auth/status")
+def auth_status_endpoint() -> dict[str, Any]:
+    return session.auth_status()
+
+
+@app.post("/api/auth/login")
+def auth_login(body: LoginBody) -> dict[str, Any]:
+    if not body.email.strip() or not body.password:
+        raise HTTPException(400, "Falta el mail o la contraseña.")
+    try:
+        return session.start_login(body.email.strip(), body.password)
+    except GarminConnectAuthenticationError:
+        raise HTTPException(401, "Garmin rechazó el mail o la contraseña.") from None
+    except GarminConnectTooManyRequestsError:
+        raise HTTPException(429, "Garmin está limitando los intentos. Esperá unos minutos.") from None
+    except Exception as exc:  # noqa: BLE001
+        # Nunca devolver el detalle crudo: puede arrastrar partes del request.
+        logger.warning("Login fallo: %s", type(exc).__name__)
+        raise HTTPException(502, "No se pudo entrar a Garmin. Probá de nuevo.") from None
+
+
+@app.post("/api/auth/mfa")
+def auth_mfa(body: MfaBody) -> dict[str, Any]:
+    if not body.code.strip():
+        raise HTTPException(400, "Falta el código.")
+    try:
+        return session.complete_mfa(body.session, body.code.strip())
+    except KeyError as exc:
+        raise HTTPException(410, str(exc)) from None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("MFA fallo: %s", type(exc).__name__)
+        raise HTTPException(401, "El código no sirvió. Probá de nuevo.") from None
+
+
+@app.post("/api/auth/logout")
+def auth_logout() -> dict[str, Any]:
+    return session.logout()
+
+
+@app.post("/api/sync")
+def sync_start(limit: int | None = None) -> dict[str, Any]:
+    if not session.auth_status().get("authenticated"):
+        raise HTTPException(401, "Entrá a Garmin antes de sincronizar.")
+    return session.start_sync(limit).as_dict()
+
+
+@app.get("/api/sync")
+def sync_current() -> dict[str, Any]:
+    job = session.current_job()
+    return job.as_dict() if job else {"state": "inactivo"}
+
+
+@app.get("/api/sync/{job_id}")
+def sync_status(job_id: str) -> dict[str, Any]:
+    job = session.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "No existe ese trabajo.")
+    return job.as_dict()

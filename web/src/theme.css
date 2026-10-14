@@ -40,6 +40,7 @@
   --rule:         #e0d4c6;
   --rule-strong:  #c7b9a3;   /* tostado de la marca */
   --accent:       #5a6749;   /* salvia: navegación activa */
+  --on-accent:    #ffffff;   /* 6.05:1 */
 
   --series-1: #b4542a;
   --series-2: #00897c;
@@ -67,6 +68,7 @@
     --rule:         #2c4360;
     --rule-strong:  #3e5775;
     --accent:       #8a9977;   /* salvia aclarada para el fondo oscuro */
+    --on-accent:    #16200f;   /* 5.53:1 — con blanco daría 3.04:1 */
 
     --series-1: #d9743d;
     --series-2: #19a091;
@@ -86,7 +88,7 @@
   color-scheme: dark;
   --paper: #121d29; --paper-raised: #1e334b; --paper-sunk: #0c141d;
   --ink: #f8eee6; --ink-2: #b8c3ce; --ink-3: #95a5b4;
-  --rule: #2c4360; --rule-strong: #3e5775; --accent: #8a9977;
+  --rule: #2c4360; --rule-strong: #3e5775; --accent: #8a9977; --on-accent: #16200f;
   --series-1: #d9743d; --series-2: #19a091;
   --ord-1: #f5c7a8; --ord-2: #e08a4c; --ord-3: #a85420;
   --on-ord-1: #2a1708; --on-ord-2: #2a1708; --on-ord-3: #ffffff;
@@ -260,3 +262,33 @@ a, .linklike {
   main { padding: 22px 18px 70px; }
   .headline .big { font-size: 52px; }
 }
+
+/* ------------------------------------------------------- formularios y job */
+.form { display: grid; gap: 14px; max-width: 420px; }
+.form label { display: grid; gap: 5px; font-size: 13px; color: var(--ink-2); }
+.form input {
+  font: inherit; font-size: 14px; padding: 9px 11px;
+  border: 1px solid var(--rule-strong); border-radius: 7px;
+  background: var(--paper); color: var(--ink);
+}
+.form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button[type="submit"], .framed > button {
+  font: inherit; font-size: 14px; padding: 9px 18px; border-radius: 7px;
+  border: 1px solid transparent; background: var(--accent); color: var(--on-accent);
+  cursor: pointer; justify-self: start;
+  font-variation-settings: 'wght' 600;
+}
+button[type="submit"]:disabled, .framed > button:disabled {
+  opacity: .5; cursor: not-allowed;
+}
+.btn-quiet {
+  font: inherit; font-size: 13.5px; padding: 8px 15px; border-radius: 7px;
+  border: 1px solid var(--rule-strong); background: transparent;
+  color: var(--ink-2); cursor: pointer;
+}
+.btn-quiet:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+
+.steps { margin: 16px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--ink-2); }
+.steps li { margin-bottom: 4px; }
+.steps li.pending { color: var(--ink-3); list-style: none; margin-left: -12px; }
